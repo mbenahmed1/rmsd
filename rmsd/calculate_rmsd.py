@@ -1426,7 +1426,7 @@ def set_coordinates(atoms: ndarray, V: ndarray, title: str = "", decimals: int =
 
 
 def get_coordinates(
-    filename: Path, fmt: str, is_gzip: bool = False, return_atoms_as_int: bool = False
+    filename: Path, fmt: str, is_gzip: bool = False, return_atoms_as_int: bool = False, alpha_carbons: bool = False
 ) -> Tuple[ndarray, ndarray]:
     """
     Get coordinates from filename in format fmt. Supports XYZ and PDB.
@@ -1452,13 +1452,13 @@ def get_coordinates(
     else:
         raise ValueError("Could not recognize file format: {:s}".format(fmt))
 
-    val = get_func(filename, is_gzip=is_gzip, return_atoms_as_int=return_atoms_as_int)
+    val = get_func(filename, is_gzip=is_gzip, return_atoms_as_int=return_atoms_as_int, alpha_carbons=alpha_carbons)
 
     return val
 
 
 def get_coordinates_pdb(
-    filename: Path, is_gzip: bool = False, return_atoms_as_int: bool = False
+    filename: Path, is_gzip: bool = False, return_atoms_as_int: bool = False, alpha_carbons: bool = False
 ) -> Tuple[ndarray, ndarray]:
     """
     Get coordinates from the first chain in a pdb file
@@ -1513,7 +1513,10 @@ def get_coordinates_pdb(
                 # Try to get the atomtype
                 try:
                     atom = tokens[2][0]
-                    if atom in ("H", "C", "N", "O", "S", "P"):
+                    if alpha_carbons:
+                        if tokens[2] == "CA":
+                            atoms.append(atom)
+                    elif atom in ("H", "C", "N", "O", "S", "P"):
                         atoms.append(atom)
                     else:
                         # e.g. 1HD1
@@ -1543,10 +1546,14 @@ def get_coordinates_pdb(
 
                 # Try to read the coordinates
                 try:
-                    V.append(np.asarray(tokens[x_column : x_column + 3], dtype=float))
+                    if alpha_carbons:
+                        if tokens[2] == "CA":
+                            V.append(np.asarray(tokens[x_column : x_column + 3], dtype=float))
+                    else:
+                        V.append(np.asarray(tokens[x_column : x_column + 3], dtype=float))
 
                 except ValueError:
-                    # If that doesn't work, use hardcoded indices
+                    # If that doesn't work, use hardcoded indices         
                     try:
                         x = line[30:38]
                         y = line[38:46]
@@ -1558,10 +1565,8 @@ def get_coordinates_pdb(
 
     if return_atoms_as_int:
         atoms = [int_atom(str(atom)) for atom in atoms]
-
     V = np.asarray(V)
     assert isinstance(V, ndarray)
-
     atoms = np.asarray(atoms)
     assert isinstance(atoms, ndarray)
     assert V.shape[0] == atoms.size
@@ -1816,6 +1821,13 @@ See https://github.com/charnley/rmsd for citation information
         ),
     )
 
+    parser.add_argument(
+        "-ca",
+        "--alpha-carbons",
+        action="store_true",
+        help="use alpha carbons only for calculation"
+    )
+
     args = parser.parse_args(arguments)
 
     # Check illegal combinations
@@ -1887,6 +1899,7 @@ def main(args: Optional[List[str]] = None) -> None:
         settings.format,
         is_gzip=settings.format_is_gzip,
         return_atoms_as_int=True,
+        alpha_carbons=settings.alpha_carbons
     )
 
     q_all_atoms, q_all = get_coordinates(
@@ -1894,6 +1907,7 @@ def main(args: Optional[List[str]] = None) -> None:
         settings.format,
         is_gzip=settings.format_is_gzip,
         return_atoms_as_int=True,
+        alpha_carbons=settings.alpha_carbons
     )
 
     p_size = p_all.shape[0]
